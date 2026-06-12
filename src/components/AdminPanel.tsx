@@ -29,6 +29,7 @@ interface AdminPanelProps {
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
   slaTargets: SLATarget[];
   setSlaTargets: React.Dispatch<React.SetStateAction<SLATarget[]>>;
+  lastSyncTime: Date | null;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -45,7 +46,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   users,
   setUsers,
   slaTargets,
-  setSlaTargets
+  setSlaTargets,
+  lastSyncTime
 }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'clients' | 'users' | 'territories' | 'sla' | 'announcements' | 'ai'>('dashboard');
   
@@ -805,7 +807,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
 
             {/* Admin Dashboard Summary */}
-            <AdminDashboard tickets={tickets} />
+            <AdminDashboard tickets={tickets} lastSyncTime={lastSyncTime} />
 
             {/* Recharts Row 1 (Line & Hist Bar) */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

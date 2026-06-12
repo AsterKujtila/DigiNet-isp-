@@ -4,14 +4,16 @@ import {
   CartesianGrid, Tooltip, ResponsiveContainer, Legend 
 } from 'recharts';
 import { Ticket } from '../types';
+import { RefreshCw } from 'lucide-react';
 
 interface AdminDashboardProps {
   tickets: Ticket[];
+  lastSyncTime: Date | null;
 }
 
 const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#6b7280'];
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ tickets }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ tickets, lastSyncTime }) => {
   // 1. Tickets by Status (Pie)
   const statusData = useMemo(() => {
     const counts = tickets.reduce((acc, t) => {
@@ -36,7 +38,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ tickets }) => {
   }, [tickets]);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="space-y-6">
+      {/* Sync Status Header */}
+      <div className="flex items-center justify-between bg-[#0d1324] border border-brand-border/50 p-3 px-5 rounded-2xl">
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 bg-emerald-500/10 rounded-lg">
+            <RefreshCw className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div>
+            <h4 className="text-[10px] font-mono font-bold text-brand-text-secondary uppercase">Matusi i Sinkronizimit</h4>
+            <p className="text-xs font-semibold text-white">Statusi i Sinkronizimit me Supabase</p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] font-mono text-brand-text-secondary uppercase">Sinkronizimi i Fundit</p>
+          <p className="text-xs font-mono font-bold text-emerald-400">
+            {lastSyncTime ? lastSyncTime.toLocaleTimeString('sq-AL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Po kërkohet...'}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {/* Pie Chart: Status */}
       <div className="bg-brand-card border border-brand-border p-5 rounded-2xl">
         <h3 className="text-xs font-mono font-bold text-white uppercase mb-4">Biletat sipas Statusit</h3>
@@ -71,5 +93,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ tickets }) => {
         </div>
       </div>
     </div>
+  </div>
   );
 };

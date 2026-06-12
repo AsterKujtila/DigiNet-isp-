@@ -24,9 +24,11 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>('operator');
   const [demoMode, setDemoMode] = useState(true);
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
   // Supabase dynamic connection monitoring states
   const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(true);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [isRetryingConnection, setIsRetryingConnection] = useState<boolean>(false);
 
   const handleRetryConnectionCheck = async () => {
@@ -37,15 +39,17 @@ export default function App() {
           const { error } = await supabase.from('announcements').select('id').limit(1);
           if (!error) {
             setIsSupabaseConnected(true);
+            setIsOnline(true);
           } else {
             console.warn('Manual retry connection failed:', error);
             setIsSupabaseConnected(false);
           }
         } else {
           setIsSupabaseConnected(true);
+          setIsOnline(true);
         }
       } else {
-        setIsSupabaseConnected(false);
+        setIsOnline(false);
       }
     } catch (e) {
       console.warn('Manual retry connection checker error:', e);
@@ -209,27 +213,25 @@ export default function App() {
     }
   }, []);
 
-  // Monitor Supabase and internet connection health dynamically
+  // Monitor internet connection health dynamically
   useEffect(() => {
     const handleOnline = () => {
-      // Re-run checks to verify active connection status
+      setIsOnline(true);
       handleRetryConnectionCheck();
     };
     const handleOffline = () => {
-      setIsSupabaseConnected(false);
+      setIsOnline(false);
     };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
     // Initial check on browser online state
-    if (!navigator.onLine) {
-      setIsSupabaseConnected(false);
-    }
+    setIsOnline(navigator.onLine);
 
     // Periodic connection health check on Supabase if configured
     const checkConnection = async () => {
-      if (!isSupabaseConfigured || !supabase) return;
+      if (!isSupabaseConfigured || !supabase || !navigator.onLine) return;
       try {
         const { error } = await supabase.from('announcements').select('id').limit(1);
         if (error) {
@@ -240,7 +242,6 @@ export default function App() {
         }
       } catch (err) {
         console.warn('Supabase ping check network error:', err);
-        setIsSupabaseConnected(false);
       }
     };
 
@@ -375,6 +376,7 @@ export default function App() {
 
       // Mark load as complete to enable dynamic state updates to propagate and persist
       setIsInitialLoadComplete(true);
+      setLastSyncTime(new Date());
     };
 
     loadAllDatabaseSync();
@@ -386,13 +388,17 @@ export default function App() {
     if (tickets.length > 0) {
       localStorage.setItem('diginet_tickets', JSON.stringify(tickets));
       if (isSupabaseConfigured) {
-        SupabaseService.saveAllTickets(tickets);
+        SupabaseService.saveAllTickets(tickets).then(success => {
+          if (success) setLastSyncTime(new Date());
+        });
       }
       fetch('/api/db/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: tickets })
-      }).catch(err => console.warn('Sync tickets error:', err));
+      })
+      .then(res => { if (res.ok) setLastSyncTime(new Date()); })
+      .catch(err => console.warn('Sync tickets error:', err));
     }
   }, [tickets, isInitialLoadComplete]);
 
@@ -401,13 +407,17 @@ export default function App() {
     if (clients.length > 0) {
       localStorage.setItem('diginet_clients', JSON.stringify(clients));
       if (isSupabaseConfigured) {
-        SupabaseService.saveAllClients(clients);
+        SupabaseService.saveAllClients(clients).then(success => {
+          if (success) setLastSyncTime(new Date());
+        });
       }
       fetch('/api/db/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: clients })
-      }).catch(err => console.warn('Sync clients error:', err));
+      })
+      .then(res => { if (res.ok) setLastSyncTime(new Date()); })
+      .catch(err => console.warn('Sync clients error:', err));
     }
   }, [clients, isInitialLoadComplete]);
 
@@ -419,7 +429,9 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: technicians })
-      }).catch(err => console.warn('Sync technicians error:', err));
+      })
+      .then(res => { if (res.ok) setLastSyncTime(new Date()); })
+      .catch(err => console.warn('Sync technicians error:', err));
     }
   }, [technicians, isInitialLoadComplete]);
 
@@ -431,7 +443,9 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: infrastructure })
-      }).catch(err => console.warn('Sync infrastructure error:', err));
+      })
+      .then(res => { if (res.ok) setLastSyncTime(new Date()); })
+      .catch(err => console.warn('Sync infrastructure error:', err));
     }
   }, [infrastructure, isInitialLoadComplete]);
 
@@ -467,7 +481,9 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: announcements })
-      }).catch(err => console.warn('Sync announcements error:', err));
+      })
+      .then(res => { if (res.ok) setLastSyncTime(new Date()); })
+      .catch(err => console.warn('Sync announcements error:', err));
     }
   }, [announcements, isInitialLoadComplete]);
 
@@ -479,7 +495,9 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: partsRequests })
-      }).catch(err => console.warn('Sync parts error:', err));
+      })
+      .then(res => { if (res.ok) setLastSyncTime(new Date()); })
+      .catch(err => console.warn('Sync parts error:', err));
     }
   }, [partsRequests, isInitialLoadComplete]);
 
@@ -491,7 +509,9 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: slaConfigs })
-      }).catch(err => console.warn('Sync SLA error:', err));
+      })
+      .then(res => { if (res.ok) setLastSyncTime(new Date()); })
+      .catch(err => console.warn('Sync SLA error:', err));
     }
   }, [slaConfigs, isInitialLoadComplete]);
 
@@ -503,7 +523,9 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: messages })
-      }).catch(err => console.warn('Sync chats error:', err));
+      })
+      .then(res => { if (res.ok) setLastSyncTime(new Date()); })
+      .catch(err => console.warn('Sync chats error:', err));
     }
   }, [messages, isInitialLoadComplete]);
 
@@ -515,7 +537,9 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: users })
-      }).catch(err => console.warn('Sync users error:', err));
+      })
+      .then(res => { if (res.ok) setLastSyncTime(new Date()); })
+      .catch(err => console.warn('Sync users error:', err));
     }
   }, [users, isInitialLoadComplete]);
 
@@ -583,41 +607,29 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Supabase Connection / Local Storage Status Indicator */}
+            {/* Status Indicator */}
             <div className={`flex items-center gap-2 bg-[#0d1324] border p-1.5 px-3 rounded-lg text-[10px] font-mono select-none ${
-              isSupabaseConfigured 
-                ? (isSupabaseConnected 
-                    ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5' 
-                    : 'border-red-500/30 text-red-400 bg-red-500/5')
-                : 'border-amber-500/30 text-amber-500 bg-amber-500/5'
+              isOnline 
+                ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5' 
+                : 'border-red-500/30 text-red-400 bg-red-500/5'
             }`}>
-              {isSupabaseConfigured ? (
-                isSupabaseConnected ? (
-                  <>
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                    </span >
-                    <Database className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="font-bold tracking-wider">ONLINE <span className="hidden sm:inline">(SUPABASE)</span></span>
-                  </>
-                ) : (
-                  <>
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span>
-                    </span>
-                    <WifiOff className="w-3.5 h-3.5 text-red-400" />
-                    <span className="font-bold tracking-wider text-red-400">SHKËPUTUR <span className="hidden sm:inline">(OFFLINE)</span></span>
-                  </>
-                )
+              {isOnline ? (
+                <>
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                  </span>
+                  <Database className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="font-bold tracking-wider">ONLINE</span>
+                </>
               ) : (
                 <>
                   <span className="relative flex h-1.5 w-1.5">
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span>
                   </span>
-                  <WifiOff className="w-3.5 h-3.5 text-amber-500" />
-                  <span className="font-bold tracking-wider">OFFLINE <span className="hidden sm:inline">(LOCAL)</span></span>
+                  <WifiOff className="w-3.5 h-3.5 text-red-400" />
+                  <span className="font-bold tracking-wider text-red-400">SHKËPUTUR <span className="hidden sm:inline">(OFFLINE)</span></span>
                 </>
               )}
             </div>
@@ -662,7 +674,7 @@ export default function App() {
       </header>
 
       {/* DEDICATED CONNECTION LOSS WARNING BANNER */}
-      {isSupabaseConfigured && !isSupabaseConnected && (
+      {!isOnline && (
         <div className="bg-red-500/10 border-b border-red-500/25 py-3.5 px-4 md:px-8 shrink-0">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex items-start sm:items-center gap-3">
@@ -671,15 +683,19 @@ export default function App() {
               </div>
               <div>
                 <p className="text-xs font-bold text-white tracking-wide uppercase font-mono flex items-center gap-2">
-                  <span> SINKRONIZIMI ME RETË (SUPABASE) ËSHTË NDËRPRERË </span>
-                  <span className="text-[10px] bg-red-500/20 border border-red-500/30 text-red-400 px-1.5 py-0.5 rounded-md font-normal animate-pulse font-sans">SINK_OFFLINE</span>
+                  <span> LIDHJA E INTERNETIT ËSHTË NDËRPRERË </span>
+                  <span className="text-[10px] bg-red-500/20 border border-red-500/30 text-red-400 px-1.5 py-0.5 rounded-md font-normal animate-pulse font-sans">OFFLINE</span>
                 </p>
                 <p className="text-[11px] text-brand-text-secondary mt-1 leading-relaxed">
-                  Lidhja me serverat kryesorë Supabase ka rënë. Të gjitha biletat dhe klientët e rinj vazhdojnë të regjistrohen lokalisht ose në serverin mbështetës automatikisht, por ju rekomandojmë të kontrolloni internetin ose të provoni të rifreskoni për të siguruar sinkronizimin e plotë.
+                  Lidhja me internetin është ndërprerë. Ndryshimet po ruhen lokalisht. Sapo të kthehet lidhja, aplikacioni do të tentojë të sinkronizohet automatikisht.
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2 w-full md:w-auto shrink-0 self-stretch md:self-auto">
+              {/* Pending changes indicator */}
+              <span className="text-[10px] font-mono text-red-400 bg-red-500/10 px-2 py-1 rounded">
+                {tickets.length + clients.length} ndryshime në pritje
+              </span>
               <button
                 onClick={handleRetryConnectionCheck}
                 disabled={isRetryingConnection}
@@ -724,6 +740,7 @@ export default function App() {
                 setInfrastructure={setInfrastructure}
                 users={users}
                 setUsers={setUsers}
+                lastSyncTime={lastSyncTime}
               />
             )}
 

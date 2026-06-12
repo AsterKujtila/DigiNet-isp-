@@ -15,7 +15,8 @@ import {
   ShieldAlert,
   Wifi,
   Tv,
-  Users
+  Users,
+  Printer
 } from 'lucide-react';
 import { Ticket } from '../types';
 
@@ -258,14 +259,23 @@ export const TicketInspector: React.FC<TicketInspectorProps> = ({ ticket, onClos
             </h3>
           </div>
           
-          <button
-            id="close-ticket-inspector"
-            onClick={onClose}
-            className="p-1 px-2.5 rounded-lg bg-[#141b2e] hover:bg-white/10 text-brand-text-secondary hover:text-white font-mono text-xs cursor-pointer border border-brand-border/80 transition-all flex items-center gap-1"
-          >
-            <X className="w-4 h-4" />
-            <span>Mbyll</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => window.print()}
+              className="p-1 px-2.5 rounded-lg bg-emerald-900/50 hover:bg-emerald-800 text-emerald-100 font-mono text-xs cursor-pointer border border-emerald-500/30 transition-all flex items-center gap-1"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print</span>
+            </button>
+            <button
+              id="close-ticket-inspector"
+              onClick={onClose}
+              className="p-1 px-2.5 rounded-lg bg-[#141b2e] hover:bg-white/10 text-brand-text-secondary hover:text-white font-mono text-xs cursor-pointer border border-brand-border/80 transition-all flex items-center gap-1"
+            >
+              <X className="w-4 h-4" />
+              <span>Mbyll</span>
+            </button>
+          </div>
         </div>
 
         {/* Detailed Grid Info */}

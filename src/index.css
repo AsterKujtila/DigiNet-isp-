@@ -74,6 +74,26 @@ body {
   border: 1px solid rgba(30, 58, 95, 0.5);
 }
 
+@media print {
+  body > *:not(#global-ticket-inspector-modal) {
+    display: none !important;
+  }
+  
+  #global-ticket-inspector-modal {
+    position: static;
+    background: white;
+    backdrop-filter: none;
+    padding: 0;
+  }
+  
+  #ticket-inspector-box {
+    box-shadow: none;
+    border: 1px solid #ccc;
+    background: white;
+    color: black;
+  }
+}
+
 .glow-blue {
   box-shadow: 0 0 15px rgba(59, 130, 246, 0.15);
 }

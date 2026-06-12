@@ -129,6 +129,8 @@ export interface TechnicianAvailability {
   estimatedFreeTime?: string;
   rating: number;
   jobsCompleted: number;
+  lat?: number;
+  lng?: number;
 }
 
 export interface InfrastructureIssue {

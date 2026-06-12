@@ -3,6 +3,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
 // Load environment variables
 dotenv.config();
@@ -10,8 +11,49 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
+// Path to the persistent database store
+const DB_FILE = path.join(process.cwd(), 'db_store.json');
+
+// Interface for database storage structure
+interface DbStore {
+  tickets?: any[];
+  clients?: any[];
+  technicians?: any[];
+  announcements?: any[];
+  infrastructure?: any[];
+  inventory?: any[];
+  knowledge?: any[];
+  parts?: any[];
+  sla?: any[];
+  chats?: any[];
+  users?: any[];
+}
+
+// Read database from local disk file
+function readDb(): DbStore {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const data = fs.readFileSync(DB_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Error reading JSON DB store:', err);
+  }
+  return {};
+}
+
+// Write database back to local disk file
+function writeDb(data: DbStore) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Error writing JSON DB store:', err);
+  }
+}
+
 // Middleware for JSON parsing
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+
 
 // Initialize Gemini Client safely
 const apiKey = process.env.GEMINI_API_KEY;
@@ -245,6 +287,32 @@ Specifiko numrin e biletave të hapura / të mbyllura të ditës, dështimet më
   } catch (error: any) {
     console.error('Error during AI summary:', error);
     res.status(500).json({ error: error.message || 'AI request failed' });
+  }
+});
+
+// GET endpoint to load entire central store
+app.get('/api/db/all', (req, res) => {
+  try {
+    const db = readDb();
+    res.json({ success: true, db });
+  } catch (err: any) {
+    console.error('Failed to read db store:', err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to read database store' });
+  }
+});
+
+// POST endpoint to update a key inside the central store
+app.post('/api/db/:key', (req, res) => {
+  const { key } = req.params;
+  try {
+    const { data } = req.body;
+    const db = readDb();
+    (db as any)[key] = data;
+    writeDb(db);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error(`Failed to write db key ${key}:`, err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to write to database store' });
   }
 });
 

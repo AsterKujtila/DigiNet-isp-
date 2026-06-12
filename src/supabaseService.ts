@@ -5,9 +5,14 @@ import { Ticket, Client, TechnicianAvailability, Announcement, ChatMessage, Part
 async function testTableAccess(tableName: string): Promise<boolean> {
   if (!isSupabaseConfigured || !supabase) return false;
   try {
-    const { error } = await supabase.from(tableName).select('count').limit(1);
-    return !error;
-  } catch {
+    const { error } = await supabase.from(tableName).select('*').limit(1);
+    if (error) {
+      console.warn(`Table "${tableName}" is not accessible or does not exist:`, error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`Error testing table access for "${tableName}":`, e);
     return false;
   }
 }
@@ -72,8 +77,21 @@ export const SupabaseService = {
       if (!hasTable) return fallback;
       const { data, error } = await supabase.from('clients').select('*');
       if (error) throw error;
-      return data && data.length > 0 ? (data as Client[]) : fallback;
-    } catch {
+      
+      if (data && data.length > 0) {
+        // Merge fallback (local list which has our imported ones) with Remote database data
+        const mergedMap = new Map<string, Client>();
+        fallback.forEach(c => {
+          if (c && c.id) mergedMap.set(c.id, c);
+        });
+        (data as Client[]).forEach(c => {
+          if (c && c.id) mergedMap.set(c.id, c);
+        });
+        return Array.from(mergedMap.values());
+      }
+      return fallback;
+    } catch (e) {
+      console.error("Gabim gjatë getClients nga Supabase:", e);
       return fallback;
     }
   },
@@ -81,7 +99,53 @@ export const SupabaseService = {
   async saveClient(client: Client): Promise<boolean> {
     if (!isSupabaseConfigured || !supabase) return false;
     try {
+      const hasTable = await testTableAccess('clients');
+      if (!hasTable) return false;
       const { error } = await supabase.from('clients').upsert(client);
+      if (error) {
+        console.error('Error saving client to Supabase:', error.message);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('Exception saving client to Supabase:', e);
+      return false;
+    }
+  },
+
+  async saveAllClients(clients: Client[]): Promise<boolean> {
+    if (!isSupabaseConfigured || !supabase || clients.length === 0) return false;
+    try {
+      const hasTable = await testTableAccess('clients');
+      if (!hasTable) return false;
+      const { error } = await supabase.from('clients').upsert(clients);
+      if (error) {
+        console.error('Error saving all clients to Supabase:', error.message);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('Exception saving all clients to Supabase:', e);
+      return false;
+    }
+  },
+
+  async deleteClient(clientId: string): Promise<boolean> {
+    if (!isSupabaseConfigured || !supabase) return false;
+    try {
+      const hasTable = await testTableAccess('clients');
+      if (!hasTable) return false;
+      const { error } = await supabase.from('clients').delete().eq('id', clientId);
+      return !error;
+    } catch {
+      return false;
+    }
+  },
+
+  async deleteTicket(ticketId: string): Promise<boolean> {
+    if (!isSupabaseConfigured || !supabase) return false;
+    try {
+      const { error } = await supabase.from('tickets').delete().eq('id', ticketId);
       return !error;
     } catch {
       return false;

@@ -4,8 +4,9 @@ import {
 } from '../types';
 import { 
   Wrench, Phone, MapPin, Sparkles, Send, CheckCircle, HelpCircle, 
-  Settings, Award, RefreshCw, BarChart2, ShieldAlert, Camera, CheckSquare, ListPlus, WifiOff
+  Settings, Award, RefreshCw, BarChart2, ShieldAlert, Camera, CheckSquare, ListPlus, WifiOff, Map as MapIcon
 } from 'lucide-react';
+import { TechMap } from './TechMap';
 
 interface TechnicianPanelProps {
   tickets: Ticket[];
@@ -14,6 +15,7 @@ interface TechnicianPanelProps {
   setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
   partsRequests: PartsRequest[];
   setPartsRequests: React.Dispatch<React.SetStateAction<PartsRequest[]>>;
+  technicians: TechnicianAvailability[];
   activeTechId: string; // tech-3 'Çlirim Rama' or similar
 }
 
@@ -24,9 +26,10 @@ export const TechnicianPanel: React.FC<TechnicianPanelProps> = ({
   setInventory,
   partsRequests,
   setPartsRequests,
+  technicians,
   activeTechId
 }) => {
-  const [activeTab, setActiveTab] = useState<'jobs' | 'assistant' | 'parts' | 'stats'>('jobs');
+  const [activeTab, setActiveTab] = useState<'jobs' | 'assistant' | 'parts' | 'stats' | 'map'>('jobs');
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
 
   // AI Field Assistant states
@@ -62,9 +65,50 @@ export const TechnicianPanel: React.FC<TechnicianPanelProps> = ({
   const [isOffline, setIsOffline] = useState(false);
   const [offlineSyncMessage, setOfflineSyncMessage] = useState('');
 
+  // Normalize IDs to make sure tech-X and usr-X formats match successfully
+  const normalizedActiveTechId = activeTechId.replace('usr-', 'tech-');
+  const currentTech = technicians.find(t => 
+    t.id === activeTechId || 
+    t.id.replace('usr-', 'tech-') === normalizedActiveTechId ||
+    t.id.replace('tech-', 'usr-') === activeTechId
+  ) || { name: 'Teknik Field', id: activeTechId };
+
   // Find assigned tickets
-  const myTickets = tickets.filter(t => t.assignedTechId === activeTechId);
+  const myTickets = tickets.filter(t => 
+    t.assignedTechId === activeTechId || 
+    (t.assignedTechId && t.assignedTechId.replace('usr-', 'tech-') === normalizedActiveTechId)
+  );
+
+  // Find open/unassigned tickets
+  const openTickets = tickets.filter(t => 
+    t.status === 'open' && !t.assignedTechId
+  );
+
   const selectedTicket = tickets.find(t => t.id === selectedTicketId);
+
+  const handleAcceptTicket = (ticketId: string) => {
+    setTickets(prev => prev.map(t => {
+      if (t.id === ticketId) {
+        return {
+          ...t,
+          status: 'assigned',
+          assignedTechId: activeTechId,
+          assignedTechName: currentTech.name,
+          history: [
+            ...t.history,
+            { 
+              timestamp: new Date().toISOString(), 
+              user: currentTech.name, 
+              role: 'technician', 
+              action: `Pranoi detyrën e punës të hapur nga operatorët` 
+            }
+          ]
+        };
+      }
+      return t;
+    }));
+    alert(`Pranuat me sukses punën për klientin ${tickets.find(t => t.id === ticketId)?.clientName}!`);
+  };
 
   // Pre-defined list of potential works
   const WORK_CATEGORIES_PRESETS = [
@@ -407,6 +451,67 @@ export const TechnicianPanel: React.FC<TechnicianPanelProps> = ({
                     Asnjë detyrë e caktuar sot.
                   </div>
                 )}
+
+                {/* Section for Open/Unassigned Tickets */}
+                <div className="pt-6 border-t border-brand-border/40 space-y-3">
+                  <div className="flex justify-between items-center text-xs font-mono">
+                    <span className="text-brand-text-secondary truncate">Detyra të Hapura në Terren (Open)</span>
+                    <span className="bg-brand-card border border-brand-border px-2 py-0.5 rounded text-brand-accent-amber font-bold">{openTickets.length} të Paatribuara</span>
+                  </div>
+
+                  {openTickets.map(job => (
+                    <div 
+                      key={job.id} 
+                      className="p-4 bg-brand-card/65 border border-dashed border-brand-border/80 rounded-2xl space-y-3 hover:border-brand-accent-blue transition-all shadow"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="text-[10px] font-mono text-brand-accent-blue font-bold">MUT-{job.id}</span>
+                          <h4 className="text-xs font-bold text-white truncate mt-0.5">{job.clientName}</h4>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[8px] font-bold ${
+                          job.priority === 'P1' ? 'priority-p1' : 
+                          job.priority === 'P2' ? 'priority-p2' :
+                          job.priority === 'P3' ? 'priority-p3' : 'priority-p4'
+                        }`}>
+                          {job.priority}
+                        </span>
+                      </div>
+
+                      <div className="text-[11px] space-y-1.5 text-brand-text-secondary font-sans leading-relaxed">
+                        <p className="flex items-center gap-1.5 text-xs text-white">
+                          <MapPin className="w-3.5 h-3.5 text-brand-accent-green shrink-0" />
+                          {job.clientAddress}
+                        </p>
+                        <p className="text-[11px] line-clamp-2 italic bg-[#0d1324]/40 p-2 rounded-lg border border-brand-border/20">
+                          "{job.description}"
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-brand-border/20 flex items-center justify-between text-[11px] font-mono font-bold">
+                        <span className="text-brand-text-muted text-[10px]">Kat: {job.category} • Zona: {job.clientZone}</span>
+                        <span className="capitalize px-1.5 py-0.5 rounded text-[8px] bg-brand-accent-amber/10 text-brand-accent-amber border border-brand-accent-amber/20">
+                          AUTO-DISPATCH
+                        </span>
+                      </div>
+
+                      <div className="pt-1.5">
+                        <button 
+                          onClick={() => handleAcceptTicket(job.id)}
+                          className="w-full py-2 bg-brand-accent-blue/20 hover:bg-brand-accent-blue text-brand-accent-blue hover:text-brand-bg border border-brand-accent-blue/30 rounded-xl text-[11px] font-bold font-sans text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" /> PRANO KËTË SHËRBIM
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {openTickets.length === 0 && (
+                    <div className="py-6 text-center text-brand-text-muted font-mono text-[11px]">
+                      Nuk ka asnjë biletë të hapur pa teknik të caktuar.
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               
@@ -779,6 +884,14 @@ export const TechnicianPanel: React.FC<TechnicianPanelProps> = ({
           </div>
         )}
 
+        {/* TAB 5: MAP */}
+        {activeTab === 'map' && (
+          <div className="p-4 space-y-4">
+            <h3 className="text-white font-bold text-sm">Harta e Teknikëve në Terren</h3>
+            <TechMap technicians={technicians} />
+          </div>
+        )}
+
       </div>
 
       {/* Bottom Navigation Tab Bar (mobile style only) */}
@@ -813,6 +926,13 @@ export const TechnicianPanel: React.FC<TechnicianPanelProps> = ({
         >
           <BarChart2 className="w-4 h-4 mb-1" />
           <span className="text-[9px] font-mono font-bold uppercase">Efiçenca</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('map')}
+          className={`flex flex-col items-center justify-center w-16 h-12 transition-all ${activeTab === 'map' ? 'text-brand-accent-green' : 'text-brand-text-secondary hover:text-white'}`}
+        >
+          <MapIcon className="w-4 h-4 mb-1" />
+          <span className="text-[9px] font-mono font-bold uppercase">Harta</span>
         </button>
       </nav>
 

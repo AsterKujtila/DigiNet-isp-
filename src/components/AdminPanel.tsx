@@ -3,13 +3,15 @@ import {
   Ticket, Client, TechnicianAvailability, InventoryItem, 
   InfrastructureIssue, Announcement, User, UserRole, SLATarget 
 } from '../types';
+import { AdminDashboard } from './AdminDashboard';
 import { 
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, 
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
 } from 'recharts';
 import { 
   Shield, Users, TrendingUp, AlertTriangle, CheckCircle, Clock, 
-  Layers, Bell, Settings, Sparkles, Send, Plus, UserX, UserCheck, MapPin, RefreshCw, X
+  Layers, Bell, Settings, Sparkles, Send, Plus, UserX, UserCheck, MapPin, RefreshCw, X, Download,
+  Upload, CheckCircle2, Trash2, Globe, FileSpreadsheet, Check
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -45,7 +47,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   slaTargets,
   setSlaTargets
 }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'users' | 'territories' | 'sla' | 'announcements' | 'ai'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'clients' | 'users' | 'territories' | 'sla' | 'announcements' | 'ai'>('dashboard');
   
   // Date range filter for Reports / Overview
   const [dateRange, setDateRange] = useState({ start: '2026-06-01', end: '2026-06-08' });
@@ -71,6 +73,214 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // SLA edit targets
   const [editedSla, setEditedSla] = useState<SLATarget[]>([]);
+
+  // Clients Import & Management States
+  const [parsedClients, setParsedClients] = useState<Client[]>([]);
+  const [selectedClientIdsForImport, setSelectedClientIdsForImport] = useState<string[]>([]);
+  const [adminClientSearch, setAdminClientSearch] = useState('');
+  const [adminClientDragActive, setAdminClientDragActive] = useState(false);
+  const [adminClientImportNotice, setAdminClientImportNotice] = useState('');
+  const [adminClientZoneFilter, setAdminClientZoneFilter] = useState('');
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    readFileContent(file);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setAdminClientDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    readFileContent(file);
+  };
+
+  const readFileContent = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      handleAdminParseTextData(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleAdminParseTextData = (text: string) => {
+    try {
+      if (!text || text.trim() === '') return;
+      
+      // check if it is JSON
+      if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+        const parsed = JSON.parse(text);
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+        const clientsList: Client[] = list.map((item: any, i) => {
+          const name = item.name || item.fullName || item.customer || item.klienti || item.emri || `Klient SmartOLT ${i+1}`;
+          const phone = item.phone || item.tel || item.cel || item.phone_number || '+355 69 XX XX XXX';
+          const address = item.address || item.direcion || item.adresa || 'Adresë e Përgjithshme';
+          const sn = item.onu_sn || item.serial || item.sn || item.ontSerial || `SN${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
+          const plan = item.plan || item.package || item.speed || 'Fiber 100 Mbps';
+          const zone = item.zone || item.olt || 'Zone 1 (Kavaja/Shyri)';
+          const routerModel = item.routerModel || item.router || 'Huawei HG8245H';
+          
+          return {
+            id: `OLT-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 899)}-${i}`,
+            name,
+            phone,
+            address,
+            zone,
+            plan,
+            currentSpeed: plan.includes('200') ? '200 / 200 Mbps' : plan.includes('500') ? '500 / 500 Mbps' : '100 / 100 Mbps',
+            routerModel,
+            ontSerial: sn,
+            status: 'active'
+          };
+        });
+        setParsedClients(clientsList);
+        setSelectedClientIdsForImport(clientsList.map(c => c.id));
+        setAdminClientImportNotice(`U lexuan ${clientsList.length} klientë nga skedari JSON.`);
+        return;
+      }
+
+      // It is CSV, let's parse lines
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      if (lines.length < 2) {
+        alert("Skedari duhet të ketë të paktën rreshtin e parë me Headerat dhe një rresht me të dhëna.");
+        return;
+      }
+
+      // Smart delimiter picker (commas, semicolons, tabs)
+      let delimiter = ',';
+      if (lines[0].includes(';')) {
+        delimiter = ';';
+      } else if (lines[0].includes('\t')) {
+        delimiter = '\t';
+      }
+
+      // Robust CSV line parser supporting embedded commas/delimiters inside quotes
+      const parseCSVLine = (line: string, delim: string): string[] => {
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let idx = 0; idx < line.length; idx++) {
+          const char = line[idx];
+          if (char === '"' || char === "'") {
+            inQuotes = !inQuotes;
+          } else if (char === delim && !inQuotes) {
+            result.push(current.trim().replace(/^["']|["']$/g, ''));
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        result.push(current.trim().replace(/^["']|["']$/g, ''));
+        return result;
+      };
+
+      const headers = parseCSVLine(lines[0], delimiter).map(h => h.toLowerCase());
+      
+      const nameIdx = headers.findIndex(h => h.includes('name') || h.includes('klienti') || h.includes('customer') || h.includes('emri') || h.includes('client') || h.includes('username') || h.includes('user') || h.includes('description'));
+      const phoneIdx = headers.findIndex(h => h.includes('phone') || h.includes('tel') || h.includes('cel') || h.includes('numri_telefonit') || h.includes('kontakt') || h.includes('telephone') || h.includes('mobile'));
+      const addressIdx = headers.findIndex(h => h.includes('address') || h.includes('adresa') || h.includes('vendndodhja') || h.includes('direction') || h.includes('location') || h.includes('street') || h.includes('vendodhja'));
+      const snIdx = headers.findIndex(h => h.includes('sn') || h.includes('serial') || h.includes('onu') || h.includes('ont') || h.includes('gpon') || h.includes('hardware'));
+      const planIdx = headers.findIndex(h => h.includes('plan') || h.includes('package') || h.includes('speed') || h.includes('shpejtesia') || h.includes('profile') || h.includes('tariff') || h.includes('tarife'));
+      const zoneIdx = headers.findIndex(h => h.includes('zone') || h.includes('olt') || h.includes('zona') || h.includes('vendi') || h.includes('pon'));
+      const routerIdx = headers.findIndex(h => h.includes('router') || h.includes('modeli') || h.includes('device') || h.includes('box'));
+
+      const parsedList: Client[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const row = lines[i];
+        const cleanRow = parseCSVLine(row, delimiter);
+
+        // Skip empty row or header duplicates
+        if (cleanRow.length === 0 || (cleanRow.length === 1 && cleanRow[0] === '')) continue;
+
+        const name = nameIdx !== -1 && cleanRow[nameIdx] ? cleanRow[nameIdx] : `Klient SmartOLT ${i}`;
+        const phone = phoneIdx !== -1 && cleanRow[phoneIdx] ? cleanRow[phoneIdx] : '+355 69 XX XX XXX';
+        const address = addressIdx !== -1 && cleanRow[addressIdx] ? cleanRow[addressIdx] : 'Rrugë pa Emër';
+        const sn = snIdx !== -1 && cleanRow[snIdx] ? cleanRow[snIdx] : `HWTC${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+        const plan = planIdx !== -1 && cleanRow[planIdx] ? cleanRow[planIdx] : 'Fiber 100 Mbps';
+        const zone = zoneIdx !== -1 && cleanRow[zoneIdx] ? cleanRow[zoneIdx] : 'Zone 1 (Kavaja/Shyri)';
+        const routerBox = routerIdx !== -1 && cleanRow[routerIdx] ? cleanRow[routerIdx] : 'Huawei HG8245H';
+
+        parsedList.push({
+          id: `OLT-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 899)}-${i}`,
+          name,
+          phone,
+          address,
+          zone,
+          plan,
+          currentSpeed: plan.includes('200') ? '200 / 200 Mbps' : plan.includes('500') ? '500 / 500 Mbps' : '100 / 100 Mbps',
+          routerModel: routerBox,
+          ontSerial: sn,
+          status: 'active'
+        });
+      }
+
+      setParsedClients(parsedList);
+      setSelectedClientIdsForImport(parsedList.map(c => c.id));
+      setAdminClientImportNotice(`U lexuan ${parsedList.length} klientë nga skedari CSV.`);
+
+    } catch (e) {
+      alert("Gabim gjatë leximit të formatit të skedarit: " + e);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (parsedClients.length === 0) return;
+    
+    // Get clients selected by the checkboxes
+    const clientsToImport = parsedClients.filter(c => selectedClientIdsForImport.includes(c.id));
+    if (clientsToImport.length === 0) {
+      alert("Ju lutem zgjidhni të paktën një klient për të importuar.");
+      return;
+    }
+
+    // Filter out duplicates with serial number protection
+    const finalImport: Client[] = [];
+    let dupleCount = 0;
+
+    clientsToImport.forEach((clientToImp) => {
+      const serialExists = clients.some(c => {
+        if (!c.ontSerial || !clientToImp.ontSerial) return false;
+        return c.ontSerial.trim().toLowerCase() === clientToImp.ontSerial.trim().toLowerCase();
+      });
+      if (serialExists) {
+        dupleCount++;
+      } else {
+        finalImport.push(clientToImp);
+      }
+    });
+
+    if (finalImport.length === 0) {
+      alert(`Të gjithë klientët e përzgjedhur existojnë tashmë në sistem (U gjetën ${dupleCount} duplikate sipas GPON Serialit).`);
+      setParsedClients([]);
+      setSelectedClientIdsForImport([]);
+      setAdminClientImportNotice('');
+      return;
+    }
+
+    const updatedClients = [...clients, ...finalImport];
+    setClients(updatedClients);
+
+    // Try parsing/syncing directly with Supabase
+    try {
+      // Lazy load imports isn't needed here as we use SupabaseService directly
+      const { SupabaseService } = await import('../supabaseService');
+      await SupabaseService.saveAllClients(updatedClients);
+    } catch (saveAllErr) {
+      console.warn("Direct saveAllClients sync info:", saveAllErr);
+    }
+
+    alert(`Sukses! U importuan ${finalImport.length} klientë të rinj në databazën e kontrollit të rrjetit DigiNet.` + 
+      (dupleCount > 0 ? ` (${dupleCount} klientë u skartuan si duplikate sipas GPON Serialit në sistem)` : '')
+    );
+
+    // Clear preview states
+    setParsedClients([]);
+    setSelectedClientIdsForImport([]);
+    setAdminClientImportNotice('');
+  };
 
   useEffect(() => {
     setEditedSla(slaTargets);
@@ -246,6 +456,112 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     alert('Konfigurimi i SLA u përditësua me sukses!');
   };
 
+  const exportToCSV = () => {
+    const headers = [
+      'Bileta ID',
+      'ID e Klientit',
+      'Emri i Klientit',
+      'Telefon i Klientit',
+      'Adresa e Klientit',
+      'Zona e Klientit',
+      'Lloji i Shërbimit',
+      'Kategoria e Problemit',
+      'Prioriteti',
+      'Statusi',
+      'Tekniku i Atribuar',
+      'Krijuar Më',
+      'Përditësuar Më',
+      'Afati SLA',
+      'Tejkalim SLA',
+      'Zgjidhur Më',
+      'Përshkrimi i Problemit',
+      'Shënime Teknike',
+      'Shënime Zgjidhjeje',
+      'Eskaluar te'
+    ];
+
+    const serviceTypeLabels: Record<string, string> = {
+      fiber: 'Fibër',
+      wireless: 'Wireless',
+      iptv: 'IPTV',
+      phone: 'Telefon'
+    };
+
+    const categoryLabels: Record<string, string> = {
+      no_internet: 'Mungesë Interneti',
+      slow_speed: 'Shpejtësi e Ulët',
+      intermittent: 'Me Ndërprerje',
+      no_signal: 'Mungesë Sinjali',
+      equipment: 'Pajisje e Dëmtuar',
+      installation: 'Instalim i Ri',
+      other: 'Të Tjera'
+    };
+
+    const statusLabels: Record<string, string> = {
+      open: 'E hapur',
+      assigned: 'E caktuar',
+      in_progress: 'Në progres',
+      pending_parts: 'Pezull (mungesë pjesësh)',
+      resolved: 'E zgjidhur',
+      closed: 'E mbyllur'
+    };
+
+    const escapeCsvValue = (val: any) => {
+      if (val === null || val === undefined) return '""';
+      const stringVal = String(val);
+      return `"${stringVal.replace(/"/g, '""')}"`;
+    };
+
+    const rows = tickets.map(t => {
+      const serviceLabel = serviceTypeLabels[t.serviceType] || t.serviceType || '';
+      const catLabel = categoryLabels[t.category] || t.category || '';
+      const statLabel = statusLabels[t.status] || t.status || '';
+      const slaBreachLabel = t.slaBreach ? 'Po (SLA e Tejkaluar)' : 'Jo';
+      
+      const formattedCreated = t.createdAt ? new Date(t.createdAt).toLocaleString('sq-AL') : '';
+      const formattedUpdated = t.updatedAt ? new Date(t.updatedAt).toLocaleString('sq-AL') : '';
+      const formattedDeadline = t.slaDeadline ? new Date(t.slaDeadline).toLocaleString('sq-AL') : '';
+      const formattedResolved = t.resolvedAt ? new Date(t.resolvedAt).toLocaleString('sq-AL') : '';
+
+      return [
+        t.id,
+        t.clientId,
+        t.clientName,
+        t.clientPhone,
+        t.clientAddress,
+        t.clientZone,
+        serviceLabel,
+        catLabel,
+        t.priority,
+        statLabel,
+        t.assignedTechName || 'I paatribuar',
+        formattedCreated,
+        formattedUpdated,
+        formattedDeadline,
+        slaBreachLabel,
+        formattedResolved,
+        t.description || '',
+        t.techNotes || '',
+        t.resolutionNotes || '',
+        t.escalatedTo ? t.escalatedTo.toUpperCase() : 'JO'
+      ].map(escapeCsvValue);
+    });
+
+    // Excel opening with proper UTF-8 Albanian characters requires a Byte Order Mark (BOM)
+    const BOM = '\uFEFF';
+    const csvContent = [headers.map(escapeCsvValue).join(','), ...rows.map(row => row.join(','))].join('\n');
+    
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.download = `diginet_bileta_database_${dateStr}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const filteredUsers = users.filter(u => 
     u.fullName.toLowerCase().includes(userSearch.toLowerCase()) || 
     u.role.toLowerCase().includes(userSearch.toLowerCase()) ||
@@ -277,6 +593,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           >
             <Layers className="w-4 h-4 text-brand-accent-amber" />
             Të Gjitha Biletat
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('clients')}
+            className={`w-full text-left py-3 px-4 rounded-xl text-sm font-medium flex items-center gap-3 transition-colors ${activeTab === 'clients' ? 'bg-brand-accent-blue/25 text-white border-l-4 border-brand-accent-blue font-semibold' : 'text-brand-text-secondary hover:bg-brand-card-hover hover:text-white'}`}
+          >
+            <FileSpreadsheet className="w-4 h-4 text-teal-400" />
+            Klientët & Importet
           </button>
 
           <button 
@@ -362,13 +686,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         {/* Mobile quick tabs (visible only on mobile instead of sidebar) */}
         <div className="flex md:hidden flex-wrap gap-1.5 bg-brand-card p-1.5 border border-brand-border rounded-xl">
-          {(['dashboard', 'tickets', 'users', 'territories', 'sla', 'announcements', 'ai'] as const).map(tab => (
+          {(['dashboard', 'tickets', 'clients', 'users', 'territories', 'sla', 'announcements', 'ai'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`text-xs px-3 py-1.5 rounded-lg whitespace-nowrap font-mono ${activeTab === tab ? 'bg-brand-accent-blue text-white' : 'text-brand-text-secondary'}`}
             >
-              {tab.toUpperCase()}
+              {tab === 'clients' ? 'KLIENTËT' : tab.toUpperCase()}
             </button>
           ))}
         </div>
@@ -479,6 +803,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
               <p className="text-[10px] text-brand-text-secondary font-mono italic">Prezantimi grafik pasqyron periudhën e përzgjedhur për territorin e Tiranës dhe Durrësit.</p>
             </div>
+
+            {/* Admin Dashboard Summary */}
+            <AdminDashboard tickets={tickets} />
 
             {/* Recharts Row 1 (Line & Hist Bar) */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -592,8 +919,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* TAB 2: OVERALL TICKETS VIEW */}
         {activeTab === 'tickets' && (
           <div className="bg-brand-card border border-brand-border rounded-2xl overflow-hidden p-5 space-y-4">
-            <h3 className="text-sm font-mono font-bold text-white uppercase">Menaxhimi i të Gjitha Biletave</h3>
-            <p className="text-xs text-brand-text-secondary">Lista kombëtare e përpunimit të aseteve dhe ankesave të DigiNet.</p>
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-sm font-mono font-bold text-white uppercase">Menaxhimi i të Gjitha Biletave</h3>
+                <p className="text-xs text-brand-text-secondary">Lista kombëtare e përpunimit të aseteve dhe ankesave të DigiNet.</p>
+              </div>
+              <button 
+                onClick={exportToCSV}
+                className="flex items-center gap-2 text-xs font-bold font-mono px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 hover:scale-[1.02] text-white rounded-xl transition-all shadow-lg shadow-emerald-950/25 active:scale-95 cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                SHKARKO TË GJITHA (CSV)
+              </button>
+            </div>
             
             <div className="border border-brand-border rounded-xl overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -644,6 +982,335 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* TAB 2.5: CLIENTS & IMPORTS */}
+        {activeTab === 'clients' && (
+          <div className="space-y-6">
+            
+            {/* Header Description */}
+            <div className="bg-brand-card p-5 border border-brand-border rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h3 className="text-sm font-mono font-bold text-white uppercase">ID_CENTRAL_CLIENTS_REGISTRY • DigiNet HQ</h3>
+                <p className="text-xs text-brand-text-secondary mt-1 font-sans">
+                  Ngarkoni skedarë CSV ose JSON për të shtuar dhe sinkronizuar klientët e rinj direkt në databazë me validim të GPON Serial.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <div className="bg-brand-bg px-3 py-1.5 rounded-xl border border-brand-border text-xs text-brand-text-secondary">
+                  Total Klientë: <span className="text-white font-bold font-mono">{clients.length}</span>
+                </div>
+                <div className="bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-xl border border-emerald-500/20 text-xs">
+                  Aktive: <span className="font-bold font-mono">{clients.filter(c => c.status === 'active').length}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Drag & Drop File Upload Area */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1 space-y-4">
+                <div className="bg-brand-card p-5 border border-brand-border rounded-2xl">
+                  <h4 className="text-xs font-mono font-bold text-white uppercase mb-3 flex items-center gap-2">
+                    <Upload className="w-4 h-4 text-brand-accent-blue" />
+                    NGARKO SKEDARIN (CSV / JSON)
+                  </h4>
+                  
+                  <div 
+                    onDragOver={(e) => { e.preventDefault(); setAdminClientDragActive(true); }}
+                    onDragLeave={() => setAdminClientDragActive(false)}
+                    onDrop={handleDrop}
+                    onClick={() => document.getElementById('admin-client-file-input')?.click()}
+                    className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
+                      adminClientDragActive 
+                        ? 'border-brand-accent-blue bg-brand-accent-blue/5 scale-[0.99] shadow-inner shadow-brand-accent-blue/10' 
+                        : 'border-brand-border bg-brand-bg hover:border-brand-text-secondary'
+                    }`}
+                  >
+                    <input 
+                      type="file" 
+                      id="admin-client-file-input"
+                      className="hidden" 
+                      accept=".csv,.json" 
+                      onChange={handleFileChange}
+                    />
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="p-3 rounded-full bg-brand-card border border-brand-border text-brand-text-secondary">
+                        <FileSpreadsheet className="w-6 h-6 text-brand-accent-blue" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-white">Drag & drop skedarin këtu</p>
+                        <p className="text-[10px] text-brand-text-secondary mt-1">ose kliko për të shfletuar (CSV, JSON)</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {adminClientImportNotice && (
+                    <div className="mt-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-mono text-emerald-400 flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{adminClientImportNotice}</span>
+                    </div>
+                  )}
+
+                  <div className="mt-4 pt-4 border-t border-brand-border space-y-2 text-xs">
+                    <p className="text-[10px] font-semibold font-mono text-brand-text-secondary uppercase">Skeleta e kolonave të mbështetura:</p>
+                    <div className="flex flex-wrap gap-1.5 font-mono text-[9px]">
+                      <span className="bg-brand-bg px-2 py-0.5 rounded border border-brand-border text-slate-300">Name / Klienti / Emri</span>
+                      <span className="bg-brand-bg px-2 py-0.5 rounded border border-brand-border text-slate-300">Phone / Tel / Kontakt</span>
+                      <span className="bg-brand-bg px-2 py-0.5 rounded border border-brand-border text-slate-300">Adresa / Address</span>
+                      <span className="bg-brand-bg px-2 py-0.5 rounded border border-brand-border text-slate-300">onu_sn / serial / ontSerial</span>
+                      <span className="bg-brand-bg px-2 py-0.5 rounded border border-brand-border text-slate-300">Plan / speed / speed_limit</span>
+                    </div>
+                    <p className="text-[9px] text-brand-text-secondary font-sans leading-relaxed">
+                      Komponenti lexon struktura nga eksporte standarde të sistemit SmartOLT, duke detektuar automatikisht emrat, telefonat, adresat dhe GPON SN unik.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Parsed Preview Area or Database View */}
+              <div className="lg:col-span-2">
+                {parsedClients.length > 0 ? (
+                  <div className="bg-brand-card border border-brand-border rounded-2xl overflow-hidden shadow-xl">
+                    <div className="p-4 bg-brand-bg/50 border-b border-brand-border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                      <div>
+                        <h4 className="text-xs font-mono font-bold text-white uppercase flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          KLIENTËT E LEXUAR ({parsedClients.length} rreshta)
+                        </h4>
+                        <p className="text-[10px] text-brand-text-secondary">Zgjidhni klientët që dëshironi të ngarkoni në sistemin kryesor.</p>
+                      </div>
+                      <div className="flex gap-2 w-full sm:w-auto justify-end">
+                        <button 
+                          onClick={() => { setParsedClients([]); setSelectedClientIdsForImport([]); setAdminClientImportNotice(''); }}
+                          className="px-3 py-1.5 bg-brand-bg border border-brand-border text-brand-text-secondary hover:text-white rounded-lg text-[11px] font-mono transition-colors"
+                        >
+                          Anulo
+                        </button>
+                        <button 
+                          onClick={handleConfirmImport}
+                          className="px-3.5 py-1.5 bg-emerald-500 text-white font-semibold rounded-lg text-[11px] flex items-center gap-1 shadow-lg shadow-emerald-500/15 hover:opacity-95 transition-opacity"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          NGARKO ({selectedClientIdsForImport.length})
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="max-h-[350px] overflow-y-auto font-sans text-xs">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-brand-bg text-brand-text-secondary font-mono text-[10px] uppercase border-b border-brand-border">
+                            <th className="p-3 w-10 text-center">
+                              <input 
+                                type="checkbox"
+                                checked={parsedClients.length > 0 && selectedClientIdsForImport.length === parsedClients.length}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedClientIdsForImport(parsedClients.map(c => c.id));
+                                  } else {
+                                    setSelectedClientIdsForImport([]);
+                                  }
+                                }}
+                                className="rounded border-brand-border bg-brand-bg text-brand-accent-blue focus:ring-0"
+                              />
+                            </th>
+                            <th className="p-3">Klienti / Telefon</th>
+                            <th className="p-3">Adresa / Zona OLT</th>
+                            <th className="p-3 text-center">Plan / ONU Model</th>
+                            <th className="p-3 text-center">GPON Serial</th>
+                            <th className="p-3">Validimi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-brand-border bg-brand-card">
+                          {parsedClients.map((client) => {
+                            const isDuplicate = clients.some(c => c.ontSerial && client.ontSerial && c.ontSerial.trim().toLowerCase() === client.ontSerial.trim().toLowerCase());
+                            const isSelected = selectedClientIdsForImport.includes(client.id);
+
+                            return (
+                              <tr 
+                                key={client.id}
+                                className={`transition-colors text-[11px] ${
+                                  isDuplicate ? 'bg-amber-500/5 opacity-80 hover:bg-amber-500/10' : 'hover:bg-brand-bg/40'
+                                }`}
+                              >
+                                <td className="p-3 text-center">
+                                  <input 
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedClientIdsForImport([...selectedClientIdsForImport, client.id]);
+                                      } else {
+                                        setSelectedClientIdsForImport(selectedClientIdsForImport.filter(id => id !== client.id));
+                                      }
+                                    }}
+                                    className="rounded border-brand-border bg-brand-bg text-brand-accent-blue focus:ring-0"
+                                  />
+                                </td>
+                                <td className="p-3 font-mono">
+                                  <div className="font-semibold text-white font-sans">{client.name}</div>
+                                  <div className="text-[10px] text-brand-text-secondary mt-0.5">{client.phone}</div>
+                                </td>
+                                <td className="p-3">
+                                  <div className="text-white font-medium">{client.address}</div>
+                                  <div className="text-[10px] text-brand-accent-blue font-mono mt-0.5">{client.zone}</div>
+                                </td>
+                                <td className="p-3 text-center">
+                                  <div className="text-white font-mono">{client.plan}</div>
+                                  <div className="text-[10px] text-brand-text-secondary font-mono mt-0.5">{client.routerModel}</div>
+                                </td>
+                                <td className="p-3 text-center font-mono text-slate-300">
+                                  {client.ontSerial || '—'}
+                                </td>
+                                <td className="p-3">
+                                  {isDuplicate ? (
+                                    <span className="flex items-center gap-1 text-brand-accent-amber font-mono text-[9px] font-bold">
+                                      <AlertTriangle className="w-3.5 h-3.5" />
+                                      DUP_EXISTS
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center gap-1 text-emerald-400 font-mono text-[9px] font-bold">
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                      VALID_OK
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-brand-card p-6 border border-brand-border rounded-2xl">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                      <div>
+                        <h4 className="text-xs font-mono font-bold text-white uppercase">DATA_BASE_CLIENTS_REGISTRY</h4>
+                        <p className="text-[11px] text-brand-text-secondary mt-0.5">Shiko dhe kërko mbi të gjithë klientët e linjave aktive në sistem.</p>
+                      </div>
+                      
+                      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                        <div className="relative flex-1 sm:w-56">
+                          <input 
+                            type="text"
+                            placeholder="Kërko me emër/tel/serial..."
+                            value={adminClientSearch}
+                            onChange={(e) => setAdminClientSearch(e.target.value)}
+                            className="w-full bg-brand-bg border border-brand-border rounded-xl text-xs pl-3 pr-3 py-2 text-white placeholder-brand-text-secondary font-mono"
+                          />
+                        </div>
+                        <select 
+                          value={adminClientZoneFilter}
+                          onChange={(e) => setAdminClientZoneFilter(e.target.value)}
+                          className="bg-brand-bg border border-brand-border rounded-xl text-xs px-2 py-2 text-brand-text-secondary font-mono"
+                        >
+                          <option value="">Zona/OLT (Të gjitha)</option>
+                          <option value="Zone 1">Zone 1</option>
+                          <option value="Zone 2">Zone 2</option>
+                          <option value="Zone 3">Zone 3</option>
+                          <option value="Zone 4">Zone 4</option>
+                          <option value="Zone 5">Zone 5</option>
+                          <option value="Durrës">Durrës</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto border border-brand-border rounded-xl">
+                      <table className="w-full text-left text-xs border-collapse font-sans">
+                        <thead>
+                          <tr className="bg-brand-bg text-brand-text-secondary font-mono text-[10px] uppercase border-b border-brand-border">
+                            <th className="p-3">Klienti</th>
+                            <th className="p-3">Kontakti / Adresa</th>
+                            <th className="p-3">Zona OLT</th>
+                            <th className="p-3 text-center">GPON Serial (ONU)</th>
+                            <th className="p-3">Plani / Routeri</th>
+                            <th className="p-3 text-center">Statusi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-brand-border">
+                          {clients
+                            .filter(c => {
+                              const searchPhrase = adminClientSearch.toLowerCase().trim();
+                              if (!searchPhrase) return true;
+                              const nameVal = (c.name || '').toLowerCase();
+                              const phoneVal = (c.phone || '');
+                              const addrVal = (c.address || '').toLowerCase();
+                              const snVal = (c.ontSerial || '').toLowerCase();
+                              return nameVal.includes(searchPhrase) || 
+                                     phoneVal.includes(searchPhrase) || 
+                                     addrVal.includes(searchPhrase) || 
+                                     snVal.includes(searchPhrase);
+                            })
+                            .filter(c => {
+                              if (!adminClientZoneFilter) return true;
+                              return (c.zone || '').toLowerCase().includes(adminClientZoneFilter.toLowerCase());
+                            })
+                            .slice(0, 100) // limit list for quick load
+                            .map((client) => (
+                              <tr key={client.id} className="hover:bg-brand-bg/30 text-[11px] transition-colors">
+                                <td className="p-3">
+                                  <div className="font-semibold text-white">{client.name}</div>
+                                  <div className="text-[9px] text-brand-text-secondary font-mono mt-0.5">{client.id}</div>
+                                </td>
+                                <td className="p-3">
+                                  <div className="text-white font-medium">{client.phone}</div>
+                                  <div className="text-[10px] text-brand-text-secondary mt-0.5 truncate max-w-[150px]">{client.address}</div>
+                                </td>
+                                <td className="p-3 text-brand-accent-blue font-mono text-[10px]">
+                                  {client.zone || 'Fushë e Përgjithshme'}
+                                </td>
+                                <td className="p-3 text-center font-mono text-brand-text-secondary">
+                                  {client.ontSerial || (
+                                    <span className="text-brand-accent-amber/75 italic text-[10px]">pa serial SN</span>
+                                  )}
+                                </td>
+                                <td className="p-3">
+                                  <div className="text-white font-mono">{client.plan}</div>
+                                  <div className="text-[10px] text-brand-text-secondary font-mono mt-0.5">{client.routerModel}</div>
+                                </td>
+                                <td className="p-3 text-center font-mono">
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] capitalize border ${
+                                    client.status === 'active' 
+                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                                      : 'bg-red-500/10 text-red-500 border-red-500/20'
+                                  }`}>
+                                    {client.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          }
+                          {clients.filter(c => {
+                            const searchPhrase = adminClientSearch.toLowerCase().trim();
+                            if (!searchPhrase) return true;
+                            const nameVal = (c.name || '').toLowerCase();
+                            const phoneVal = (c.phone || '');
+                            const addrVal = (c.address || '').toLowerCase();
+                            const snVal = (c.ontSerial || '').toLowerCase();
+                            return nameVal.includes(searchPhrase) || 
+                                   phoneVal.includes(searchPhrase) || 
+                                   addrVal.includes(searchPhrase) || 
+                                   snVal.includes(searchPhrase);
+                          }).filter(c => {
+                            if (!adminClientZoneFilter) return true;
+                            return (c.zone || '').toLowerCase().includes(adminClientZoneFilter.toLowerCase());
+                          }).length === 0 && (
+                            <tr>
+                              <td colSpan={6} className="p-8 text-center text-brand-text-secondary font-mono text-xs">
+                                Nuk u gjet asnjë klient që i përgjigjet kërkesës suaj.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
         )}
 
